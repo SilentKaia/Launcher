@@ -7,6 +7,7 @@ import path from "path";
 import { ConfigService } from "@/main/services/config.service";
 import { copy } from "fs-extra";
 import { asyncFilter } from "@/shared/util/asyncFilter";
+import { compare, fileCompareHandlers } from "dir-compare";
 
 export class MigrationService {
   constructor(
@@ -17,6 +18,7 @@ export class MigrationService {
 
   private standardProfileName = "0_Wildlander-STANDARD";
   private performanceProfileName = "0_Wildlander-PERFORMANCE";
+  private potatoProfileName = "5_Wildlander-POTATO";
 
   /**
    * Wildlander originally shipped with graphics settings in the profiles.
@@ -162,5 +164,75 @@ export class MigrationService {
         ...validProfileMappings,
       ])
     );
+  }
+
+  /**
+   * The initial migration had a bug that set the standard profile to be the performance one.
+   * If they are still the same, correct the error
+   * TODO this can be removed once everyone that encountered the bug has updated
+   */
+  async fixBrokenStandardModlists() {
+    const standardProfilePath = `${this.profileService.profileDirectory()}/${
+      this.standardProfileName
+    }`;
+
+    const performanceProfilePath = `${this.profileService.profileDirectory()}/${
+      this.performanceProfileName
+    }`;
+
+    const potatoProfilePath = `${this.profileService.profileDirectory()}/${
+      this.potatoProfileName
+    }`;
+
+    const backedUpProfiles =
+      await this.profileService.getBackedUpProfileDirectories();
+
+    if (!fs.existsSync(performanceProfilePath)) {
+      // Ensure the performance profile exists
+      const backedUpPerformanceProfile =
+        backedUpProfiles.find((profile) =>
+          profile.toLowerCase().includes("potato")
+        ) ?? backedUpProfiles[backedUpProfiles.length - 1];
+      await copy(backedUpPerformanceProfile, performanceProfilePath);
+    }
+
+    console.log(
+      await compare(standardProfilePath, potatoProfilePath, {
+        compareContent: true,
+        compareFileAsync: fileCompareHandlers.lineBasedFileCompare.compareAsync,
+        ignoreLineEnding: true,
+        ignoreWhiteSpaces: true,
+        ignoreAllWhiteSpaces: true,
+        ignoreEmptyLines: true,
+      })
+    );
+
+    if (
+      (
+        await compare(standardProfilePath, potatoProfilePath, {
+          compareContent: true,
+          compareFileAsync:
+            fileCompareHandlers.lineBasedFileCompare.compareAsync,
+          ignoreLineEnding: true,
+          ignoreWhiteSpaces: true,
+          ignoreAllWhiteSpaces: true,
+          ignoreEmptyLines: true,
+        })
+      ).same
+    ) {
+      logger.debug(
+        "Performance and standard profiles are the same. Copying latest ultra to standard profile."
+      );
+
+      const ultraProfile =
+        backedUpProfiles.find((profile) =>
+          profile.toLowerCase().includes("ultra")
+        ) ?? backedUpProfiles[1];
+      await copy(ultraProfile, standardProfilePath);
+    } else {
+      logger.debug(
+        "Performance and standard profile are different, not performing fix."
+      );
+    }
   }
 }

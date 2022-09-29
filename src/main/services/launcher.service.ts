@@ -44,6 +44,7 @@ export class LauncherService {
         filepath
       );
       await this.migrationService.separateProfileFromGraphics();
+      await this.migrationService.fixBrokenStandardModlists();
       await this.validateConfig();
       await this.backupAssets();
       await this.enbService.resetCurrentEnb(false);
